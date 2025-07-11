@@ -9,7 +9,7 @@ In this fork of nanoBoot, a rudimentary magic boot key is implemented (by settin
 An example implementation of a function to jump directly to the bootloader is as follows:
 
       void EnterBootloader () {
-         asm volatile(" ldi  r27, 1");	 // Set register 27
+         asm volatile(" ldi  r27, 1");  // Set register 27
          wdt_enable(WDTO_15MS);         // Reset
          while (1) {}                   // Wait reset
       }
