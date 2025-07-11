@@ -57,7 +57,7 @@
 ; see "Enable LED" in the "run_bootloader" section for details.
 
 ; Uncomment the following line to enable LED feature
-; #define LED_ENABLED
+ #define LED_ENABLED
 
 ; LED Configuration
 ; Uncomment or add a new LED configuration for your specific board
@@ -86,10 +86,10 @@
 
 ; Pro Micro compatible board
 ;   -- LED is ON with ATmega32u4 PIN D5 LOW
-; #define LED_BIT           5
-; #define LED_CONF          DDRD
-; #define LED_PORT          PORTD
-; #define LED_ACTIVE_LEVEL  0
+ #define LED_BIT           5
+ #define LED_CONF          DDRD
+ #define LED_PORT          PORTD
+ #define LED_ACTIVE_LEVEL  0
 
 ; Pro Micro compatible board
 ;   -- LED is ON with ATmega32u4 PIN B3 LOW
@@ -143,10 +143,6 @@
 
 #define rZERO              r2
 #define rONE               r3
-#define rMCUSR             r4
-
-; #define rMagicBootKeyL     r26    ; currently not used - XL
-; #define rMagicBootKeyH     r27    ; currently not used - XH
 
 ; To make things easier, we are going to handle all Setup Paquets
 ; the same way, and store the values coming in to the same registers:
@@ -164,10 +160,10 @@
 #define reg_bRequest          r19
 #define reg_wValueL           r20
 #define reg_wValueH           r21
-#define reg_wIndexL           r22
-#define reg_wIndexH           r23
+; #define reg_wIndexL           r22
+; #define reg_wIndexH           r23
 #define reg_wLengthL          r24
-#define reg_wLengthH          r25
+; #define reg_wLengthH          r25
 
 ;
 ; To facilitate coding, we will use the Y register to point to the first USB register;
@@ -373,22 +369,24 @@ main:
 ; =================================================================
 ; = Initialize constants
 ; =================================================================
-      ; Set R3=rONE
+
       clr         rONE                          ; Initialize rONE as 0 (application may have set this before RESET)
       inc         rONE                          ; Initialize rONE  (R3 register = one)
 
       ; Create a copy of the MCUSR (MCU Status Register) as soon as possible
-      in          rMCUSR, _SFR_IO_ADDR(MCUSR)   ; Load MCU Status Register to rMCUSR
+      in          r4, _SFR_IO_ADDR(MCUSR)   ; Load MCU Status Register to r4
+
       out         _SFR_IO_ADDR(MCUSR), rZERO    ; Load MCU Status Register with rZERO (clear reset flags, particularly clear WDRF in MCUSR), necessary before disabling the Watchdog
 
       ; We MUST disable the Watchdog Timer first, otherwise it will remain enabled and will keep resetting the system, so...
       ; Disable Watchdog Timer
       mov         r17,  rZERO                   ; Load r17 with zero to disable the Watchdog Timer completely
-
       rcall       set_watchdog_timer            ; Call the subroutine that sets the watchdog timer with the value loaded in r17
 
-; check_reset_flags:
-      sbrs        rMCUSR, EXTRF                 ; Skip the next instruction if EXTRF is set (if External Reset Flag, skip next instruction, go to run_bootloader)
+      cp          r27, rONE                     ; Compare r27 and 1 (r27 can be set outside the bootloader before software-reset)
+      breq        run_bootloader                ; If r27 is equal to 1, go to the bootloader
+
+      sbrs        r4, EXTRF                     ; Skip the next instruction if EXTRF is set (if External Reset Flag, skip next instruction, go to run_bootloader)
 
 run_application:                                ; We get here if the cause of the reset was anything but an Extenal Reset (push-button)
       jmp         0                             ; Simply jump to 0x0000 (application) IMPORTANT NOTE!! This CANNOT be an 'rjmp'!!
@@ -396,16 +394,11 @@ run_application:                                ; We get here if the cause of th
 run_bootloader:
       set                                       ; Initialize BootLoaderActive flag (T flag in SREG)
 
-; Enable LED
 #if defined(LED_ENABLED)
-      ; Set IO register as output for LED
-      ENABLE_LED_OUTPUT
+      
+      ENABLE_LED_OUTPUT  ; Set IO register as output for LED
+      TURN_LED_ON        ; Turn led on
 
-      ; If the LED is active low, we need to turn it off here (set LED_BIT) since the MCU IO port is
-      ; initialized as 0. This is a 2-byte penalty when using active low LED.
-      #if LED_ACTIVE_LEVEL == 0
-            TURN_LED_OFF
-      #endif
 #endif
 
 
@@ -425,30 +418,6 @@ run_bootloader:
       out         _SFR_IO_ADDR(MCUCR), rONE     ; Store MCU Control Register (MCUCR) with the value needed to "unlock" the Interrupt Vector Change Configuration
       out         _SFR_IO_ADDR(MCUCR), r17      ; Store r17 to the MCU Control Register (MCUCR)
 #endif
-
-; =================================================================
-; = Setup Stack
-; = UNNECESARY SINCE ATMEGA32U4 DOES THIS AUTOMATICALLY!
-; =================================================================
-
-; Set up the stack (TODO: is this necessary?), we won't be using the stack anyway
-      ; ldi         r16, hi8(RAMEND)              ; Load r16 with the most significant 8 bits of RAMEND
-      ; ldi         r17, lo8(RAMEND)              ; Load r17 with the least significant 8 bits of RAMEND
-      ; out         _SFR_IO_ADDR(SPH), r16        ; Set the Stack Pointer High byte (SPH) with the value in r16
-      ; out         _SFR_IO_ADDR(SPL), r17        ; Set the Stack Pointer Low byte (SPL) with the value in r17
-
-
-; =================================================================
-; = Setup System Clock (16 MHz XTAL)
-; = UNNECESARY SINCE FUSES TAKE CARE OF THIS!!
-; =================================================================
-
-      ; lds         r16, CLKSEL0                  ; Load the value of Clock Selection Register 0 (CLKSEL0) to r16
-      ; ori         r16, _BV(EXTE) | _BV(CLKS)    ; Set Enable External Clock (EXTE) and Clock Selector (CLKS) bits in the value loaded in r16
-      ; sts         CLKSEL0, r16                  ; Store r16 to the Clock Selection Register 0 (CLKSEL0)
-; 1:    lds         r17, CLKSTA                   ; Load the value of  Clock Status Register (CLKSTA) to r17
-      ; sbrs        r17, EXTON                    ; Skip the next instruction if the External Clock On bit (EXTON) is set (External Clk is running); basically, move on
-      ; rjmp        1b                            ; Jump to 1Backwards if the External Clock On bit (EXTON) is not set (External Clk not running)
 
       ; The following is a functional improvement by "osamuaoki", after he was
       ; able to free up enough space to fit this in. Basically, this allows the
@@ -502,18 +471,6 @@ run_bootloader:
       ; UHWCON |=  (1 << UVREGE);
                                                 ; Set a logic one to the USB pad regulator bit (UVREGE)
       std         Y+oUHWCON, rONE               ; Store USB Hardware Configuration Register (UHWCON) with the value needed to enable the USB pad regulator
-
-      ; SIZE OPTIMIZATION: Not needed due to known reset value (Zero)
-      ; ; Disable all USB Device-related Interrupts
-      ; ; UDIEN = 0;
-      ; std         Y+oUDIEN, rZERO               ; Load the USB Device Interrupt Enable Register (UDIEN) with zero (disable all USB Device-related interrupts)
-
-      ; SIZE OPTIMIZATION: Not needed due to known reset value (Zero)
-      ; ; Clear all USB-related Interrupts
-      ; ; USBINT = 0;
-      ; ; UDINT  = 0;
-      ; std         Y+oUSBINT, rZERO              ; Load the USB General Interrupt Flag Register (USBINT) with zero (clear the IVBUS Transition Interrupt Flag (VBUSTI))
-      ; std         Y+oUDINT, rZERO               ; Load the USB Device Interrupt Flag Register (UDINT) with zero (clear all USB Device-related interrupts)
 
       ; Enable the USB Controller
       ; USBCON |=  (1 << USBE);
@@ -600,7 +557,7 @@ exit_bootloader:
 
 #if defined(LED_ENABLED)
       ; Turn LED off before exiting
-      TURN_LED_OFF
+      ; TURN_LED_OFF
 #endif
 
 ; =================================================================
@@ -770,7 +727,7 @@ SET_CONFIGURATION:
       ; TODO: If we ever have space, we could add a flag here to mark the fact that we have entered
       ; this state, and turn the LED on at the end of the setup request. For now this is the best we
       ; can do.
-      TURN_LED_ON
+     ; TURN_LED_ON
 #endif
 
       ; Optimization by "sigprof" that saves 2 bytes
